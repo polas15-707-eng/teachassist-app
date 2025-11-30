@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,18 +8,16 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2 } from "lucide-react";
-import { routineSlotsData } from "@/data/mockData";
-import { RoutineSlot, Teacher } from "@/types";
+import { supabase } from "@/integrations/supabase/client";
+import { RoutineSlot } from "@/types";
 import { toast } from "sonner";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 const RoutineManagement = () => {
   const { currentUser } = useAuth();
-  const teacher = currentUser as Teacher;
-  const [slots, setSlots] = useState<RoutineSlot[]>(
-    routineSlotsData.filter(s => s.teacherID === teacher.teacherID)
-  );
+  const [slots, setSlots] = useState<RoutineSlot[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [newSlot, setNewSlot] = useState({
     day: "Monday",
@@ -27,30 +25,65 @@ const RoutineManagement = () => {
     endTime: "10:00",
   });
 
-  const handleAddSlot = (e: React.FormEvent) => {
-    e.preventDefault();
+  const fetchSlots = async () => {
+    if (!currentUser?.teacher?.id) return;
 
-    const newSlotData: RoutineSlot = {
-      slotID: `slot-${Date.now()}`,
-      teacherID: teacher.teacherID,
-      day: newSlot.day,
-      startTime: newSlot.startTime,
-      endTime: newSlot.endTime,
-      isAvailable: true,
-    };
+    const { data, error } = await supabase
+      .from("routine_slots")
+      .select("*")
+      .eq("teacher_id", currentUser.teacher.id)
+      .order("day");
 
-    setSlots([...slots, newSlotData]);
-    routineSlotsData.push(newSlotData);
-    toast.success("Time slot added successfully!");
+    if (error) {
+      toast.error("Failed to fetch slots");
+      return;
+    }
+
+    setSlots(data || []);
+    setLoading(false);
   };
 
-  const handleDeleteSlot = (slotId: string) => {
-    setSlots(slots.filter(s => s.slotID !== slotId));
-    const index = routineSlotsData.findIndex(s => s.slotID === slotId);
-    if (index > -1) {
-      routineSlotsData.splice(index, 1);
+  useEffect(() => {
+    fetchSlots();
+  }, [currentUser]);
+
+  const handleAddSlot = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!currentUser?.teacher?.id) return;
+
+    const { error } = await supabase
+      .from("routine_slots")
+      .insert({
+        teacher_id: currentUser.teacher.id,
+        day: newSlot.day,
+        start_time: newSlot.startTime,
+        end_time: newSlot.endTime,
+        is_available: true,
+      });
+
+    if (error) {
+      toast.error("Failed to add slot");
+      return;
     }
+
+    toast.success("Time slot added successfully!");
+    fetchSlots();
+  };
+
+  const handleDeleteSlot = async (slotId: string) => {
+    const { error } = await supabase
+      .from("routine_slots")
+      .delete()
+      .eq("id", slotId);
+
+    if (error) {
+      toast.error("Failed to delete slot");
+      return;
+    }
+
     toast.success("Time slot removed");
+    fetchSlots();
   };
 
   const groupedSlots = slots.reduce((acc, slot) => {
@@ -60,6 +93,25 @@ const RoutineManagement = () => {
     acc[slot.day].push(slot);
     return acc;
   }, {} as Record<string, RoutineSlot[]>);
+
+  if (!currentUser?.teacher) {
+    return (
+      <DashboardLayout>
+        <div>
+          <h1 className="text-3xl font-bold text-foreground mb-2">My Routine</h1>
+          <p className="text-muted-foreground">Your teacher account is pending approval.</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <p className="text-muted-foreground">Loading...</p>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
@@ -131,24 +183,24 @@ const RoutineManagement = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                       {groupedSlots[day].map((slot) => (
                         <div
-                          key={slot.slotID}
+                          key={slot.id}
                           className="flex items-center justify-between p-3 border rounded bg-card"
                         >
                           <div>
                             <p className="text-sm font-medium">
-                              {slot.startTime} - {slot.endTime}
+                              {slot.start_time} - {slot.end_time}
                             </p>
                             <Badge
-                              variant={slot.isAvailable ? "default" : "secondary"}
+                              variant={slot.is_available ? "default" : "secondary"}
                               className="text-xs mt-1"
                             >
-                              {slot.isAvailable ? "Available" : "Booked"}
+                              {slot.is_available ? "Available" : "Booked"}
                             </Badge>
                           </div>
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleDeleteSlot(slot.slotID)}
+                            onClick={() => handleDeleteSlot(slot.id)}
                           >
                             <Trash2 className="w-4 h-4 text-destructive" />
                           </Button>

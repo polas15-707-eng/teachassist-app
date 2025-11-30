@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,52 +8,108 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, User, Calendar } from "lucide-react";
-import { coursesData, teachersData, routineSlotsData, bookingsData } from "@/data/mockData";
-import { Booking } from "@/types";
+import { BookOpen, User } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Course, RoutineSlot } from "@/types";
 import { toast } from "sonner";
 
+interface TeacherWithProfile {
+  id: string;
+  teacher_id: string;
+  user_id: string;
+  profiles: {
+    name: string;
+  };
+}
+
 const BookSession = () => {
-  const { currentUser } = useAuth();
+  const { user } = useAuth();
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [teachers, setTeachers] = useState<TeacherWithProfile[]>([]);
+  const [slots, setSlots] = useState<RoutineSlot[]>([]);
+  
   const [selectedCourse, setSelectedCourse] = useState("");
   const [selectedTeacher, setSelectedTeacher] = useState("");
   const [selectedSlot, setSelectedSlot] = useState("");
+  const [selectedDate, setSelectedDate] = useState("");
   const [description, setDescription] = useState("");
 
-  const activeTeachers = teachersData.filter(t => t.accountStatus === "Active");
-  const availableSlots = selectedTeacher
-    ? routineSlotsData.filter(s => s.teacherID === selectedTeacher && s.isAvailable)
-    : [];
+  useEffect(() => {
+    const fetchData = async () => {
+      const { data: coursesData } = await supabase.from("courses").select("*");
+      const { data: teachersData } = await supabase
+        .from("teachers")
+        .select(`
+          id,
+          teacher_id,
+          user_id,
+          profiles (name)
+        `)
+        .eq("account_status", "Active");
 
-  const handleBookSession = (e: React.FormEvent) => {
+      setCourses(coursesData || []);
+      setTeachers(teachersData || []);
+    };
+
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    const fetchSlots = async () => {
+      if (!selectedTeacher) {
+        setSlots([]);
+        return;
+      }
+
+      const { data } = await supabase
+        .from("routine_slots")
+        .select("*")
+        .eq("teacher_id", selectedTeacher)
+        .eq("is_available", true);
+
+      setSlots(data || []);
+    };
+
+    fetchSlots();
+  }, [selectedTeacher]);
+
+  const handleBookSession = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!selectedCourse || !selectedTeacher || !selectedSlot || !description.trim()) {
+    if (!selectedCourse || !selectedTeacher || !selectedSlot || !selectedDate || !description.trim()) {
       toast.error("Please fill in all fields");
       return;
     }
 
-    const slot = routineSlotsData.find(s => s.slotID === selectedSlot);
+    if (!user) return;
+
+    const slot = slots.find(s => s.id === selectedSlot);
     if (!slot) return;
 
-    const newBooking: Booking = {
-      bookingID: `B${String(bookingsData.length + 1).padStart(3, '0')}`,
-      studentID: currentUser?.userId || "",
-      teacherID: selectedTeacher,
-      courseID: selectedCourse,
-      description: description.trim(),
-      date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Next week
-      time: slot.startTime,
-      status: "Pending",
-    };
+    const { error } = await supabase
+      .from("bookings")
+      .insert({
+        student_id: user.id,
+        teacher_id: selectedTeacher,
+        course_id: selectedCourse,
+        description: description.trim(),
+        booking_date: selectedDate,
+        booking_time: slot.start_time,
+        status: "Pending",
+      });
 
-    bookingsData.push(newBooking);
+    if (error) {
+      toast.error("Failed to submit booking: " + error.message);
+      return;
+    }
+
     toast.success("Booking submitted successfully! Waiting for teacher approval.");
     
     // Reset form
     setSelectedCourse("");
     setSelectedTeacher("");
     setSelectedSlot("");
+    setSelectedDate("");
     setDescription("");
   };
 
@@ -79,9 +135,9 @@ const BookSession = () => {
                       <SelectValue placeholder="Select a course" />
                     </SelectTrigger>
                     <SelectContent>
-                      {coursesData.map((course) => (
-                        <SelectItem key={course.courseID} value={course.courseID}>
-                          {course.courseName}
+                      {courses.map((course) => (
+                        <SelectItem key={course.id} value={course.id}>
+                          {course.course_name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -95,9 +151,9 @@ const BookSession = () => {
                       <SelectValue placeholder="Select a teacher" />
                     </SelectTrigger>
                     <SelectContent>
-                      {activeTeachers.map((teacher) => (
-                        <SelectItem key={teacher.teacherID} value={teacher.teacherID}>
-                          {teacher.name}
+                      {teachers.map((teacher) => (
+                        <SelectItem key={teacher.id} value={teacher.id}>
+                          {teacher.profiles?.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -111,13 +167,24 @@ const BookSession = () => {
                       <SelectValue placeholder="Select a time slot" />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableSlots.map((slot) => (
-                        <SelectItem key={slot.slotID} value={slot.slotID}>
-                          {slot.day} - {slot.startTime} to {slot.endTime}
+                      {slots.map((slot) => (
+                        <SelectItem key={slot.id} value={slot.id}>
+                          {slot.day} - {slot.start_time} to {slot.end_time}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="date">Preferred Date</Label>
+                  <Input
+                    id="date"
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -148,10 +215,10 @@ const BookSession = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {coursesData.map((course) => (
-                    <div key={course.courseID} className="p-3 border rounded-lg">
-                      <p className="font-medium">{course.courseName}</p>
-                      <p className="text-xs text-muted-foreground">{course.courseID}</p>
+                  {courses.map((course) => (
+                    <div key={course.id} className="p-3 border rounded-lg">
+                      <p className="font-medium">{course.course_name}</p>
+                      <p className="text-xs text-muted-foreground">{course.course_id}</p>
                     </div>
                   ))}
                 </div>
@@ -167,11 +234,11 @@ const BookSession = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {activeTeachers.map((teacher) => (
-                    <div key={teacher.teacherID} className="p-3 border rounded-lg flex items-center justify-between">
+                  {teachers.map((teacher) => (
+                    <div key={teacher.id} className="p-3 border rounded-lg flex items-center justify-between">
                       <div>
-                        <p className="font-medium">{teacher.name}</p>
-                        <p className="text-xs text-muted-foreground">{teacher.teacherID}</p>
+                        <p className="font-medium">{teacher.profiles?.name}</p>
+                        <p className="text-xs text-muted-foreground">{teacher.teacher_id}</p>
                       </div>
                       <Badge className="bg-success">Active</Badge>
                     </div>

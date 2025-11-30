@@ -1,12 +1,16 @@
-import React, { createContext, useContext, useState, ReactNode } from "react";
-import { User, Teacher } from "@/types";
-import { adminUser, teachersData, studentsData } from "@/data/mockData";
+import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { User, Session } from "@supabase/supabase-js";
+import { supabase } from "@/integrations/supabase/client";
+import { UserWithRole } from "@/types";
 
 interface AuthContextType {
-  currentUser: User | null;
-  login: (email: string, password: string) => boolean;
-  logout: () => void;
-  register: (name: string, email: string, password: string, role: "teacher" | "student") => boolean;
+  user: User | null;
+  session: Session | null;
+  currentUser: UserWithRole | null;
+  loading: boolean;
+  login: (email: string, password: string) => Promise<{ error: any }>;
+  logout: () => Promise<void>;
+  register: (name: string, email: string, password: string, role: "teacher" | "student") => Promise<{ error: any }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -24,79 +28,156 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserWithRole | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const login = (email: string, password: string): boolean => {
-    // Check admin
-    if (email === adminUser.email && password === adminUser.password) {
-      setCurrentUser(adminUser);
-      return true;
+  const fetchUserData = async (userId: string) => {
+    try {
+      // Fetch profile
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .single();
+
+      if (profileError) throw profileError;
+
+      // Fetch role
+      const { data: roleData, error: roleError } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .single();
+
+      if (roleError) throw roleError;
+
+      // If teacher, fetch teacher data
+      let teacher = undefined;
+      if (roleData.role === "teacher") {
+        const { data: teacherData } = await supabase
+          .from("teachers")
+          .select("*")
+          .eq("user_id", userId)
+          .single();
+        
+        teacher = teacherData || undefined;
+      }
+
+      setCurrentUser({
+        profile,
+        role: roleData.role,
+        teacher,
+      });
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+      setCurrentUser(null);
     }
-
-    // Check teachers
-    const teacher = teachersData.find(
-      (t) => t.email === email && t.password === password
-    );
-    if (teacher) {
-      setCurrentUser(teacher);
-      return true;
-    }
-
-    // Check students
-    const student = studentsData.find(
-      (s) => s.email === email && s.password === password
-    );
-    if (student) {
-      setCurrentUser(student);
-      return true;
-    }
-
-    return false;
   };
 
-  const logout = () => {
+  useEffect(() => {
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          setTimeout(() => {
+            fetchUserData(session.user.id);
+          }, 0);
+        } else {
+          setCurrentUser(null);
+        }
+        
+        setLoading(false);
+      }
+    );
+
+    // Check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      
+      if (session?.user) {
+        fetchUserData(session.user.id);
+      }
+      
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    return { error };
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
     setCurrentUser(null);
   };
 
-  const register = (name: string, email: string, password: string, role: "teacher" | "student"): boolean => {
-    // Check if email already exists
-    const allUsers = [adminUser, ...teachersData, ...studentsData];
-    if (allUsers.some(user => user.email === email)) {
-      return false;
-    }
+  const register = async (
+    name: string,
+    email: string,
+    password: string,
+    role: "teacher" | "student"
+  ) => {
+    // Sign up the user
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name,
+        },
+        emailRedirectTo: `${window.location.origin}/dashboard`,
+      },
+    });
 
-    const newUserId = `user-${role.charAt(0)}${Date.now()}`;
-    
+    if (error) return { error };
+    if (!data.user) return { error: new Error("User creation failed") };
+
+    // Create role entry
+    const { error: roleError } = await supabase
+      .from("user_roles")
+      .insert({
+        user_id: data.user.id,
+        role: role,
+      });
+
+    if (roleError) return { error: roleError };
+
+    // If teacher, create teacher entry
     if (role === "teacher") {
-      const newTeacherId = `T${String(teachersData.length + 1).padStart(3, '0')}`;
-      const newTeacher: Teacher = {
-        userId: newUserId,
-        teacherID: newTeacherId,
-        name,
-        email,
-        password,
-        role: "teacher",
-        accountStatus: "Pending",
-      };
-      teachersData.push(newTeacher);
-      setCurrentUser(newTeacher);
-    } else {
-      const newStudent: User = {
-        userId: newUserId,
-        name,
-        email,
-        password,
-        role: "student",
-      };
-      studentsData.push(newStudent);
-      setCurrentUser(newStudent);
+      const teacherCount = await supabase
+        .from("teachers")
+        .select("id", { count: "exact" });
+
+      const teacherId = `T${String((teacherCount.count || 0) + 1).padStart(3, "0")}`;
+
+      const { error: teacherError } = await supabase
+        .from("teachers")
+        .insert({
+          user_id: data.user.id,
+          teacher_id: teacherId,
+          account_status: "Pending",
+        });
+
+      if (teacherError) return { error: teacherError };
     }
 
-    return true;
+    return { error: null };
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, login, logout, register }}>
+    <AuthContext.Provider value={{ user, session, currentUser, loading, login, logout, register }}>
       {children}
     </AuthContext.Provider>
   );
