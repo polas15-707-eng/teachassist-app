@@ -4,40 +4,62 @@ export type AccountStatus = "Pending" | "Active";
 
 export type BookingStatus = "Pending" | "Approved" | "Rejected";
 
-export interface User {
-  userId: string;
+export interface Profile {
+  id: string;
   name: string;
   email: string;
-  password: string;
-  role: UserRole;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface Teacher extends User {
-  teacherID: string;
-  accountStatus: AccountStatus;
+export interface UserRole {
+  id: string;
+  user_id: string;
+  role: "admin" | "teacher" | "student";
+  created_at: string;
+}
+
+export interface Teacher {
+  id: string;
+  user_id: string;
+  teacher_id: string;
+  account_status: AccountStatus;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Course {
-  courseID: string;
-  courseName: string;
+  id: string;
+  course_id: string;
+  course_name: string;
+  created_at: string;
 }
 
 export interface RoutineSlot {
-  slotID: string;
-  teacherID: string;
+  id: string;
+  teacher_id: string;
   day: string;
-  startTime: string;
-  endTime: string;
-  isAvailable: boolean;
+  start_time: string;
+  end_time: string;
+  is_available: boolean;
+  created_at: string;
 }
 
 export interface Booking {
-  bookingID: string;
-  studentID: string;
-  teacherID: string;
-  courseID: string;
+  id: string;
+  student_id: string;
+  teacher_id: string;
+  course_id: string;
   description: string;
-  date: string;
-  time: string;
+  booking_date: string;
+  booking_time: string;
   status: BookingStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserWithRole {
+  profile: Profile;
+  role: "admin" | "teacher" | "student";
+  teacher?: Teacher;
 }
