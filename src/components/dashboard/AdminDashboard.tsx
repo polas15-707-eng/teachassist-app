@@ -1,38 +1,75 @@
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, BookOpen, Calendar, CheckCircle } from "lucide-react";
-import { teachersData, studentsData, coursesData, bookingsData } from "@/data/mockData";
+import { supabase } from "@/integrations/supabase/client";
 
 const AdminDashboard = () => {
-  const activeTeachers = teachersData.filter(t => t.accountStatus === "Active").length;
-  const pendingTeachers = teachersData.filter(t => t.accountStatus === "Pending").length;
-  const totalBookings = bookingsData.length;
-  const approvedBookings = bookingsData.filter(b => b.status === "Approved").length;
+  const [stats, setStats] = useState({
+    totalStudents: 0,
+    activeTeachers: 0,
+    pendingTeachers: 0,
+    totalCourses: 0,
+    totalBookings: 0,
+    approvedBookings: 0,
+    pendingBookings: 0,
+    rejectedBookings: 0,
+  });
 
-  const stats = [
+  useEffect(() => {
+    const fetchStats = async () => {
+      const [students, teachers, courses, bookings] = await Promise.all([
+        supabase.from("user_roles").select("id", { count: "exact" }).eq("role", "student"),
+        supabase.from("teachers").select("*"),
+        supabase.from("courses").select("id", { count: "exact" }),
+        supabase.from("bookings").select("*"),
+      ]);
+
+      const activeTeachers = teachers.data?.filter(t => t.account_status === "Active").length || 0;
+      const pendingTeachers = teachers.data?.filter(t => t.account_status === "Pending").length || 0;
+      const approvedBookings = bookings.data?.filter(b => b.status === "Approved").length || 0;
+      const pendingBookings = bookings.data?.filter(b => b.status === "Pending").length || 0;
+      const rejectedBookings = bookings.data?.filter(b => b.status === "Rejected").length || 0;
+
+      setStats({
+        totalStudents: students.count || 0,
+        activeTeachers,
+        pendingTeachers,
+        totalCourses: courses.count || 0,
+        totalBookings: bookings.data?.length || 0,
+        approvedBookings,
+        pendingBookings,
+        rejectedBookings,
+      });
+    };
+
+    fetchStats();
+  }, []);
+
+  const statCards = [
     {
       title: "Total Students",
-      value: studentsData.length,
+      value: stats.totalStudents,
       icon: Users,
       color: "text-primary",
       bgColor: "bg-primary/10",
     },
     {
       title: "Active Teachers",
-      value: activeTeachers,
+      value: stats.activeTeachers,
       icon: CheckCircle,
       color: "text-success",
       bgColor: "bg-success/10",
     },
     {
       title: "Pending Approvals",
-      value: pendingTeachers,
+      value: stats.pendingTeachers,
       icon: Calendar,
       color: "text-warning",
       bgColor: "bg-warning/10",
     },
     {
       title: "Total Courses",
-      value: coursesData.length,
+      value: stats.totalCourses,
       icon: BookOpen,
       color: "text-secondary",
       bgColor: "bg-secondary/10",
@@ -47,7 +84,7 @@ const AdminDashboard = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat) => {
+        {statCards.map((stat) => {
           const Icon = stat.icon;
           return (
             <Card key={stat.title} className="hover:shadow-md transition-shadow">
@@ -75,23 +112,19 @@ const AdminDashboard = () => {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Total Bookings</span>
-              <span className="text-2xl font-bold text-foreground">{totalBookings}</span>
+              <span className="text-2xl font-bold text-foreground">{stats.totalBookings}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Approved Bookings</span>
-              <span className="text-2xl font-bold text-success">{approvedBookings}</span>
+              <span className="text-2xl font-bold text-success">{stats.approvedBookings}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Pending Bookings</span>
-              <span className="text-2xl font-bold text-warning">
-                {bookingsData.filter(b => b.status === "Pending").length}
-              </span>
+              <span className="text-2xl font-bold text-warning">{stats.pendingBookings}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Rejected Bookings</span>
-              <span className="text-2xl font-bold text-destructive">
-                {bookingsData.filter(b => b.status === "Rejected").length}
-              </span>
+              <span className="text-2xl font-bold text-destructive">{stats.rejectedBookings}</span>
             </div>
           </div>
         </CardContent>

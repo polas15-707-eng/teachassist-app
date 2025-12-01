@@ -39,16 +39,29 @@ const BookSession = () => {
       const { data: coursesData } = await supabase.from("courses").select("*");
       const { data: teachersData } = await supabase
         .from("teachers")
-        .select(`
-          id,
-          teacher_id,
-          user_id,
-          profiles (name)
-        `)
+        .select("id, teacher_id, user_id")
         .eq("account_status", "Active");
 
       setCourses(coursesData || []);
-      setTeachers(teachersData || []);
+      
+      if (teachersData) {
+        // Fetch profiles separately
+        const enrichedTeachers = await Promise.all(
+          teachersData.map(async (teacher) => {
+            const { data: profile } = await supabase
+              .from("profiles")
+              .select("name")
+              .eq("id", teacher.user_id)
+              .single();
+
+            return {
+              ...teacher,
+              profiles: { name: profile?.name || "Unknown" },
+            };
+          })
+        );
+        setTeachers(enrichedTeachers);
+      }
     };
 
     fetchData();

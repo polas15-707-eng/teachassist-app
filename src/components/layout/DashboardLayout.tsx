@@ -40,8 +40,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
           { icon: BookOpen, label: "Course Management", path: "/dashboard/courses" },
         ];
       case "teacher":
-        const teacher = currentUser as Teacher;
-        if (teacher.accountStatus === "Pending") {
+        if (currentUser.teacher?.account_status === "Pending") {
           return [
             { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
           ];
@@ -83,8 +82,8 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
           </div>
           <div className="flex items-center gap-4">
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-medium text-sidebar-foreground">{currentUser?.name}</p>
-              <p className="text-xs text-sidebar-foreground/70">{currentUser?.email}</p>
+              <p className="text-sm font-medium text-sidebar-foreground">{currentUser?.profile.name}</p>
+              <p className="text-xs text-sidebar-foreground/70">{currentUser?.profile.email}</p>
             </div>
             <Button
               variant="outline"
