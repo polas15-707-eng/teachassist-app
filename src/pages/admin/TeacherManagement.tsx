@@ -1,31 +1,85 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle } from "lucide-react";
-import { teachersData } from "@/data/mockData";
-import { Teacher } from "@/types";
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-const TeacherManagement = () => {
-  const [teachers, setTeachers] = useState<Teacher[]>(teachersData);
+interface TeacherWithProfile {
+  id: string;
+  teacher_id: string;
+  account_status: string;
+  profiles: {
+    name: string;
+    email: string;
+  };
+}
 
-  const handleApprove = (teacherId: string) => {
-    setTeachers(prev =>
-      prev.map(t =>
-        t.teacherID === teacherId ? { ...t, accountStatus: "Active" } : t
-      )
+const TeacherManagement = () => {
+  const [teachers, setTeachers] = useState<TeacherWithProfile[]>([]);
+
+  useEffect(() => {
+    fetchTeachers();
+  }, []);
+
+  const fetchTeachers = async () => {
+    const { data, error } = await supabase
+      .from("teachers")
+      .select("id, teacher_id, account_status, user_id");
+
+    if (error) {
+      console.error("Error fetching teachers:", error);
+      return;
+    }
+
+    if (!data) return;
+
+    // Fetch profiles separately
+    const enrichedTeachers = await Promise.all(
+      data.map(async (teacher) => {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("name, email")
+          .eq("id", teacher.user_id)
+          .single();
+
+        return {
+          ...teacher,
+          profiles: {
+            name: profile?.name || "Unknown",
+            email: profile?.email || "Unknown",
+          },
+        };
+      })
     );
+
+    setTeachers(enrichedTeachers);
+  };
+
+  const handleApprove = async (teacherId: string) => {
+    const { error } = await supabase
+      .from("teachers")
+      .update({ account_status: "Active" })
+      .eq("id", teacherId);
+
+    if (error) {
+      toast.error("Failed to approve teacher");
+      console.error(error);
+      return;
+    }
+
     toast.success("Teacher approved successfully!");
+    fetchTeachers();
   };
 
   const handleReject = (teacherId: string) => {
     toast.info("Teacher account rejected");
   };
 
-  const pendingTeachers = teachers.filter(t => t.accountStatus === "Pending");
-  const activeTeachers = teachers.filter(t => t.accountStatus === "Active");
+  const pendingTeachers = teachers.filter(t => t.account_status === "Pending");
+  const activeTeachers = teachers.filter(t => t.account_status === "Active");
 
   return (
     <DashboardLayout>
@@ -49,18 +103,18 @@ const TeacherManagement = () => {
               <div className="space-y-4">
                 {pendingTeachers.map((teacher) => (
                   <div
-                    key={teacher.teacherID}
+                    key={teacher.id}
                     className="flex items-center justify-between p-4 border rounded-lg"
                   >
                     <div className="space-y-1">
-                      <p className="font-medium">{teacher.name}</p>
-                      <p className="text-sm text-muted-foreground">{teacher.email}</p>
-                      <p className="text-xs text-muted-foreground">Teacher ID: {teacher.teacherID}</p>
+                      <p className="font-medium">{teacher.profiles.name}</p>
+                      <p className="text-sm text-muted-foreground">{teacher.profiles.email}</p>
+                      <p className="text-xs text-muted-foreground">Teacher ID: {teacher.teacher_id}</p>
                     </div>
                     <div className="flex gap-2">
                       <Button
                         size="sm"
-                        onClick={() => handleApprove(teacher.teacherID)}
+                        onClick={() => handleApprove(teacher.id)}
                         className="bg-success hover:bg-success/90"
                       >
                         <CheckCircle className="w-4 h-4 mr-1" />
@@ -69,7 +123,7 @@ const TeacherManagement = () => {
                       <Button
                         size="sm"
                         variant="destructive"
-                        onClick={() => handleReject(teacher.teacherID)}
+                        onClick={() => handleReject(teacher.id)}
                       >
                         <XCircle className="w-4 h-4 mr-1" />
                         Reject
@@ -96,13 +150,13 @@ const TeacherManagement = () => {
               <div className="space-y-4">
                 {activeTeachers.map((teacher) => (
                   <div
-                    key={teacher.teacherID}
+                    key={teacher.id}
                     className="flex items-center justify-between p-4 border rounded-lg"
                   >
                     <div className="space-y-1">
-                      <p className="font-medium">{teacher.name}</p>
-                      <p className="text-sm text-muted-foreground">{teacher.email}</p>
-                      <p className="text-xs text-muted-foreground">Teacher ID: {teacher.teacherID}</p>
+                      <p className="font-medium">{teacher.profiles.name}</p>
+                      <p className="text-sm text-muted-foreground">{teacher.profiles.email}</p>
+                      <p className="text-xs text-muted-foreground">Teacher ID: {teacher.teacher_id}</p>
                     </div>
                     <Badge className="bg-success">Active</Badge>
                   </div>

@@ -1,19 +1,37 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BookOpen, Plus } from "lucide-react";
-import { coursesData } from "@/data/mockData";
-import { Course } from "@/types";
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
+interface Course {
+  id: string;
+  course_id: string;
+  course_name: string;
+}
+
 const CourseManagement = () => {
-  const [courses, setCourses] = useState<Course[]>(coursesData);
+  const [courses, setCourses] = useState<Course[]>([]);
   const [newCourseName, setNewCourseName] = useState("");
 
-  const handleAddCourse = (e: React.FormEvent) => {
+  useEffect(() => {
+    fetchCourses();
+  }, []);
+
+  const fetchCourses = async () => {
+    const { data, error } = await supabase.from("courses").select("*");
+    if (error) {
+      console.error("Error fetching courses:", error);
+      return;
+    }
+    setCourses(data || []);
+  };
+
+  const handleAddCourse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCourseName.trim()) {
       toast.error("Please enter a course name");
@@ -21,15 +39,21 @@ const CourseManagement = () => {
     }
 
     const newCourseId = `C${String(courses.length + 1).padStart(3, '0')}`;
-    const newCourse: Course = {
-      courseID: newCourseId,
-      courseName: newCourseName.trim(),
-    };
+    
+    const { error } = await supabase.from("courses").insert({
+      course_id: newCourseId,
+      course_name: newCourseName.trim(),
+    });
 
-    setCourses([...courses, newCourse]);
-    coursesData.push(newCourse);
+    if (error) {
+      toast.error("Failed to add course");
+      console.error(error);
+      return;
+    }
+
     setNewCourseName("");
     toast.success("Course added successfully!");
+    fetchCourses();
   };
 
   return (
@@ -71,7 +95,7 @@ const CourseManagement = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {courses.map((course) => (
                 <div
-                  key={course.courseID}
+                  key={course.id}
                   className="p-4 border rounded-lg hover:shadow-md transition-shadow"
                 >
                   <div className="flex items-center gap-3">
@@ -79,8 +103,8 @@ const CourseManagement = () => {
                       <BookOpen className="w-5 h-5 text-primary" />
                     </div>
                     <div className="flex-1">
-                      <p className="font-medium">{course.courseName}</p>
-                      <p className="text-xs text-muted-foreground">{course.courseID}</p>
+                      <p className="font-medium">{course.course_name}</p>
+                      <p className="text-xs text-muted-foreground">{course.course_id}</p>
                     </div>
                   </div>
                 </div>

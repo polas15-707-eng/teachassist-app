@@ -1,5 +1,3 @@
-export type UserRole = "admin" | "teacher" | "student";
-
 export type AccountStatus = "Pending" | "Active";
 
 export type BookingStatus = "Pending" | "Approved" | "Rejected";
@@ -12,7 +10,7 @@ export interface Profile {
   updated_at: string;
 }
 
-export interface UserRole {
+export interface UserRoleData {
   id: string;
   user_id: string;
   role: "admin" | "teacher" | "student";

@@ -1,45 +1,95 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle } from "lucide-react";
-import { bookingsData, studentsData, coursesData } from "@/data/mockData";
-import { Booking, Teacher } from "@/types";
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+
+interface BookingWithDetails {
+  id: string;
+  booking_date: string;
+  booking_time: string;
+  description: string;
+  status: string;
+  profiles: { name: string };
+  courses: { course_name: string };
+}
 
 const BookingManagement = () => {
   const { currentUser } = useAuth();
-  const teacher = currentUser as Teacher;
-  const [bookings, setBookings] = useState<Booking[]>(
-    bookingsData.filter(b => b.teacherID === teacher.teacherID)
-  );
+  const [bookings, setBookings] = useState<BookingWithDetails[]>([]);
 
-  const handleApprove = (bookingId: string) => {
-    setBookings(prev =>
-      prev.map(b =>
-        b.bookingID === bookingId ? { ...b, status: "Approved" } : b
-      )
-    );
-    const booking = bookingsData.find(b => b.bookingID === bookingId);
-    if (booking) {
-      booking.status = "Approved";
+  useEffect(() => {
+    fetchBookings();
+  }, [currentUser]);
+
+  const fetchBookings = async () => {
+    if (!currentUser?.teacher?.id) return;
+
+    const { data, error } = await supabase
+      .from("bookings")
+      .select("id, booking_date, booking_time, description, status, student_id, course_id")
+      .eq("teacher_id", currentUser.teacher.id);
+
+    if (error) {
+      console.error("Error fetching bookings:", error);
+      return;
     }
-    toast.success("Booking approved successfully!");
+
+    if (!data) return;
+
+    // Fetch student profiles and courses separately
+    const enrichedBookings = await Promise.all(
+      data.map(async (booking) => {
+        const [profileRes, courseRes] = await Promise.all([
+          supabase.from("profiles").select("name").eq("id", booking.student_id).single(),
+          supabase.from("courses").select("course_name").eq("id", booking.course_id).single(),
+        ]);
+
+        return {
+          ...booking,
+          profiles: { name: profileRes.data?.name || "Unknown Student" },
+          courses: { course_name: courseRes.data?.course_name || "Unknown Course" },
+        };
+      })
+    );
+
+    setBookings(enrichedBookings);
   };
 
-  const handleReject = (bookingId: string) => {
-    setBookings(prev =>
-      prev.map(b =>
-        b.bookingID === bookingId ? { ...b, status: "Rejected" } : b
-      )
-    );
-    const booking = bookingsData.find(b => b.bookingID === bookingId);
-    if (booking) {
-      booking.status = "Rejected";
+  const handleApprove = async (bookingId: string) => {
+    const { error } = await supabase
+      .from("bookings")
+      .update({ status: "Approved" })
+      .eq("id", bookingId);
+
+    if (error) {
+      toast.error("Failed to approve booking");
+      console.error(error);
+      return;
     }
+
+    toast.success("Booking approved successfully!");
+    fetchBookings();
+  };
+
+  const handleReject = async (bookingId: string) => {
+    const { error } = await supabase
+      .from("bookings")
+      .update({ status: "Rejected" })
+      .eq("id", bookingId);
+
+    if (error) {
+      toast.error("Failed to reject booking");
+      console.error(error);
+      return;
+    }
+
     toast.info("Booking rejected");
+    fetchBookings();
   };
 
   const pendingBookings = bookings.filter(b => b.status === "Pending");
@@ -65,45 +115,41 @@ const BookingManagement = () => {
               <p className="text-muted-foreground text-center py-4">No pending requests</p>
             ) : (
               <div className="space-y-4">
-                {pendingBookings.map((booking) => {
-                  const student = studentsData.find(s => s.userId === booking.studentID);
-                  const course = coursesData.find(c => c.courseID === booking.courseID);
-                  return (
-                    <div
-                      key={booking.bookingID}
-                      className="p-4 border rounded-lg space-y-3"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="space-y-1">
-                          <p className="font-medium">{student?.name || "Unknown Student"}</p>
-                          <p className="text-sm text-muted-foreground">{course?.courseName}</p>
-                          <p className="text-sm">{booking.description}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {booking.date} at {booking.time}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          onClick={() => handleApprove(booking.bookingID)}
-                          className="bg-success hover:bg-success/90"
-                        >
-                          <CheckCircle className="w-4 h-4 mr-1" />
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => handleReject(booking.bookingID)}
-                        >
-                          <XCircle className="w-4 h-4 mr-1" />
-                          Reject
-                        </Button>
+                {pendingBookings.map((booking) => (
+                  <div
+                    key={booking.id}
+                    className="p-4 border rounded-lg space-y-3"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-1">
+                        <p className="font-medium">{booking.profiles.name}</p>
+                        <p className="text-sm text-muted-foreground">{booking.courses.course_name}</p>
+                        <p className="text-sm">{booking.description}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {booking.booking_date} at {booking.booking_time}
+                        </p>
                       </div>
                     </div>
-                  );
-                })}
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => handleApprove(booking.id)}
+                        className="bg-success hover:bg-success/90"
+                      >
+                        <CheckCircle className="w-4 h-4 mr-1" />
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleReject(booking.id)}
+                      >
+                        <XCircle className="w-4 h-4 mr-1" />
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>
@@ -118,30 +164,26 @@ const BookingManagement = () => {
               <p className="text-muted-foreground text-center py-4">No booking history</p>
             ) : (
               <div className="space-y-4">
-                {processedBookings.map((booking) => {
-                  const student = studentsData.find(s => s.userId === booking.studentID);
-                  const course = coursesData.find(c => c.courseID === booking.courseID);
-                  return (
-                    <div
-                      key={booking.bookingID}
-                      className="flex items-start justify-between p-4 border rounded-lg"
-                    >
-                      <div className="space-y-1">
-                        <p className="font-medium">{student?.name || "Unknown Student"}</p>
-                        <p className="text-sm text-muted-foreground">{course?.courseName}</p>
-                        <p className="text-sm">{booking.description}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {booking.date} at {booking.time}
-                        </p>
-                      </div>
-                      <Badge
-                        variant={booking.status === "Approved" ? "default" : "destructive"}
-                      >
-                        {booking.status}
-                      </Badge>
+                {processedBookings.map((booking) => (
+                  <div
+                    key={booking.id}
+                    className="flex items-start justify-between p-4 border rounded-lg"
+                  >
+                    <div className="space-y-1">
+                      <p className="font-medium">{booking.profiles.name}</p>
+                      <p className="text-sm text-muted-foreground">{booking.courses.course_name}</p>
+                      <p className="text-sm">{booking.description}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {booking.booking_date} at {booking.booking_time}
+                      </p>
                     </div>
-                  );
-                })}
+                    <Badge
+                      variant={booking.status === "Approved" ? "default" : "destructive"}
+                    >
+                      {booking.status}
+                    </Badge>
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>

@@ -33,18 +33,7 @@ const MyBookings = () => {
 
       const { data, error } = await supabase
         .from("bookings")
-        .select(`
-          id,
-          description,
-          booking_date,
-          booking_time,
-          status,
-          teachers (
-            teacher_id,
-            profiles (name)
-          ),
-          courses (course_name)
-        `)
+        .select("id, description, booking_date, booking_time, status, teacher_id, course_id")
         .eq("student_id", user.id)
         .order("booking_date", { ascending: false });
 
@@ -53,7 +42,43 @@ const MyBookings = () => {
         return;
       }
 
-      setBookings(data || []);
+      if (!data) {
+        setLoading(false);
+        return;
+      }
+
+      // Fetch teacher and course details separately
+      const enrichedBookings = await Promise.all(
+        data.map(async (booking) => {
+          const [teacherRes, courseRes] = await Promise.all([
+            supabase.from("teachers").select("user_id, teacher_id").eq("id", booking.teacher_id).single(),
+            supabase.from("courses").select("course_name").eq("id", booking.course_id).single(),
+          ]);
+
+          let teacherName = "Unknown Teacher";
+          if (teacherRes.data?.user_id) {
+            const profileRes = await supabase
+              .from("profiles")
+              .select("name")
+              .eq("id", teacherRes.data.user_id)
+              .single();
+            teacherName = profileRes.data?.name || teacherName;
+          }
+
+          return {
+            ...booking,
+            teachers: {
+              teacher_id: teacherRes.data?.teacher_id || "",
+              profiles: { name: teacherName },
+            },
+            courses: {
+              course_name: courseRes.data?.course_name || "Unknown Course",
+            },
+          };
+        })
+      );
+
+      setBookings(enrichedBookings);
       setLoading(false);
     };
 
