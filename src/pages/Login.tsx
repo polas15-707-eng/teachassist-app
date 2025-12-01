@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,8 @@ import { toast } from "sonner";
 
 const Login = () => {
   const navigate = useNavigate();
-  const { login, register } = useAuth();
+  const { login, register, currentUser, loading } = useAuth();
+  const [isLoading, setIsLoading] = useState(false);
   
   // Login state
   const [loginEmail, setLoginEmail] = useState("");
@@ -24,27 +25,44 @@ const Login = () => {
   const [registerPassword, setRegisterPassword] = useState("");
   const [registerRole, setRegisterRole] = useState<"teacher" | "student">("student");
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (login(loginEmail, loginPassword)) {
-      toast.success("Login successful!");
+  // Redirect based on role when user is authenticated
+  useEffect(() => {
+    if (!loading && currentUser) {
       navigate("/dashboard");
+    }
+  }, [currentUser, loading, navigate]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    
+    const { error } = await login(loginEmail, loginPassword);
+    
+    if (error) {
+      toast.error(error.message || "Invalid credentials. Please try again.");
+      setIsLoading(false);
     } else {
-      toast.error("Invalid credentials. Please try again.");
+      toast.success("Login successful!");
+      // Navigation will happen automatically via useEffect
     }
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (register(registerName, registerEmail, registerPassword, registerRole)) {
+    setIsLoading(true);
+    
+    const { error } = await register(registerName, registerEmail, registerPassword, registerRole);
+    
+    if (error) {
+      toast.error(error.message || "Registration failed. Please try again.");
+      setIsLoading(false);
+    } else {
       toast.success(
         registerRole === "teacher" 
           ? "Registration successful! Waiting for admin approval." 
           : "Registration successful!"
       );
-      navigate("/dashboard");
-    } else {
-      toast.error("Email already exists. Please use a different email.");
+      // Navigation will happen automatically via useEffect
     }
   };
 
@@ -95,8 +113,8 @@ const Login = () => {
                     required
                   />
                 </div>
-                <Button type="submit" className="w-full">
-                  Login
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? "Logging in..." : "Login"}
                 </Button>
                 <div className="text-sm text-muted-foreground space-y-1 pt-2">
                   <p className="font-semibold">Demo Accounts:</p>
@@ -155,8 +173,8 @@ const Login = () => {
                     </div>
                   </RadioGroup>
                 </div>
-                <Button type="submit" className="w-full">
-                  Register
+                <Button type="submit" className="w-full" disabled={isLoading}>
+                  {isLoading ? "Registering..." : "Register"}
                 </Button>
                 {registerRole === "teacher" && (
                   <p className="text-xs text-muted-foreground text-center">
