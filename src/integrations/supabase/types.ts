@@ -156,7 +156,7 @@ export type Database = {
           account_status: string
           created_at: string | null
           id: string
-          teacher_id: string
+          teacher_id: string | null
           updated_at: string | null
           user_id: string
         }
@@ -164,7 +164,7 @@ export type Database = {
           account_status?: string
           created_at?: string | null
           id?: string
-          teacher_id: string
+          teacher_id?: string | null
           updated_at?: string | null
           user_id: string
         }
@@ -172,7 +172,7 @@ export type Database = {
           account_status?: string
           created_at?: string | null
           id?: string
-          teacher_id?: string
+          teacher_id?: string | null
           updated_at?: string | null
           user_id?: string
         }
