@@ -59,6 +59,9 @@ const TeacherManagement = () => {
   };
 
   const handleApprove = async (teacherId: string) => {
+    // Find the teacher to get their email for notification
+    const teacher = teachers.find(t => t.id === teacherId);
+    
     const { error } = await supabase
       .from("teachers")
       .update({ account_status: "Active" })
@@ -68,6 +71,20 @@ const TeacherManagement = () => {
       toast.error("Failed to approve teacher");
       console.error(error);
       return;
+    }
+
+    // Send approval email
+    if (teacher) {
+      try {
+        await supabase.functions.invoke("send-teacher-approval-email", {
+          body: {
+            teacherEmail: teacher.profiles.email,
+            teacherName: teacher.profiles.name,
+          },
+        });
+      } catch (emailError) {
+        console.error("Failed to send approval email:", emailError);
+      }
     }
 
     toast.success("Teacher approved successfully!");

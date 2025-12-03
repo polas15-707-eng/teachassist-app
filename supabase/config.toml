@@ -1,1 +1,7 @@
 project_id = "nzgijrsgwhxdfktvmyvf"
+
+[functions.send-teacher-approval-email]
+verify_jwt = false
+
+[functions.send-booking-approved-email]
+verify_jwt = false

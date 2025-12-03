@@ -61,6 +61,8 @@ const BookingManagement = () => {
   };
 
   const handleApprove = async (bookingId: string) => {
+    const booking = bookings.find(b => b.id === bookingId);
+    
     const { error } = await supabase
       .from("bookings")
       .update({ status: "Approved" })
@@ -70,6 +72,33 @@ const BookingManagement = () => {
       toast.error("Failed to approve booking");
       console.error(error);
       return;
+    }
+
+    // Send approval email to student
+    if (booking) {
+      try {
+        // Get student email
+        const { data: studentData } = await supabase
+          .from("profiles")
+          .select("email")
+          .eq("id", (booking as any).student_id)
+          .single();
+
+        if (studentData?.email) {
+          await supabase.functions.invoke("send-booking-approved-email", {
+            body: {
+              studentEmail: studentData.email,
+              studentName: booking.profiles.name,
+              teacherName: currentUser?.profile.name || "Your Teacher",
+              courseName: booking.courses.course_name,
+              bookingDate: booking.booking_date,
+              bookingTime: booking.booking_time,
+            },
+          });
+        }
+      } catch (emailError) {
+        console.error("Failed to send booking approval email:", emailError);
+      }
     }
 
     toast.success("Booking approved successfully!");
