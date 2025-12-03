@@ -129,51 +129,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     password: string,
     role: "teacher" | "student"
   ) => {
-    // Sign up the user
-    const { data, error } = await supabase.auth.signUp({
+    // Sign up the user - role assignment and teacher creation handled by database trigger
+    const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
           name,
+          role,
         },
         emailRedirectTo: `${window.location.origin}/dashboard`,
       },
     });
 
-    if (error) return { error };
-    if (!data.user) return { error: new Error("User creation failed") };
-
-    // Create role entry
-    const { error: roleError } = await supabase
-      .from("user_roles")
-      .insert({
-        user_id: data.user.id,
-        role: role,
-      });
-
-    if (roleError) return { error: roleError };
-
-    // If teacher, create teacher entry
-    if (role === "teacher") {
-      const teacherCount = await supabase
-        .from("teachers")
-        .select("id", { count: "exact" });
-
-      const teacherId = `T${String((teacherCount.count || 0) + 1).padStart(3, "0")}`;
-
-      const { error: teacherError } = await supabase
-        .from("teachers")
-        .insert({
-          user_id: data.user.id,
-          teacher_id: teacherId,
-          account_status: "Pending",
-        });
-
-      if (teacherError) return { error: teacherError };
-    }
-
-    return { error: null };
+    return { error };
   };
 
   return (
