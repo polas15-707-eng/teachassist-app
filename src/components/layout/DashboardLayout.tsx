@@ -14,7 +14,6 @@ import {
   Bell
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Teacher } from "@/types";
 
 interface DashboardLayoutProps {
   children: ReactNode;

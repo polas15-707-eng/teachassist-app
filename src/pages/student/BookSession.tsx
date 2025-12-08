@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,111 +8,70 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, User } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { Course, RoutineSlot } from "@/types";
+import { BookOpen, User, AlertCircle } from "lucide-react";
+import { bookingService } from "@/services/bookingService";
+import { useCourses } from "@/hooks/useCourses";
+import { useActiveTeachers, useAvailableSlots } from "@/hooks/useTeachers";
+import { bookingSchema } from "@/lib/validation";
 import { toast } from "sonner";
-
-interface TeacherWithProfile {
-  id: string;
-  teacher_id: string;
-  user_id: string;
-  profiles: {
-    name: string;
-  };
-}
 
 const BookSession = () => {
   const { user } = useAuth();
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [teachers, setTeachers] = useState<TeacherWithProfile[]>([]);
-  const [slots, setSlots] = useState<RoutineSlot[]>([]);
+  const { courses } = useCourses();
+  const { teachers } = useActiveTeachers();
   
   const [selectedCourse, setSelectedCourse] = useState("");
   const [selectedTeacher, setSelectedTeacher] = useState("");
   const [selectedSlot, setSelectedSlot] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [description, setDescription] = useState("");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      const { data: coursesData } = await supabase.from("courses").select("*");
-      const { data: teachersData } = await supabase
-        .from("teachers")
-        .select("id, teacher_id, user_id")
-        .eq("account_status", "Active");
-
-      setCourses(coursesData || []);
-      
-      if (teachersData) {
-        // Fetch profiles separately
-        const enrichedTeachers = await Promise.all(
-          teachersData.map(async (teacher) => {
-            const { data: profile } = await supabase
-              .from("profiles")
-              .select("name")
-              .eq("id", teacher.user_id)
-              .single();
-
-            return {
-              ...teacher,
-              profiles: { name: profile?.name || "Unknown" },
-            };
-          })
-        );
-        setTeachers(enrichedTeachers);
-      }
-    };
-
-    fetchData();
-  }, []);
-
-  useEffect(() => {
-    const fetchSlots = async () => {
-      if (!selectedTeacher) {
-        setSlots([]);
-        return;
-      }
-
-      const { data } = await supabase
-        .from("routine_slots")
-        .select("*")
-        .eq("teacher_id", selectedTeacher)
-        .eq("is_available", true);
-
-      setSlots(data || []);
-    };
-
-    fetchSlots();
-  }, [selectedTeacher]);
+  const { slots } = useAvailableSlots(selectedTeacher);
 
   const handleBookSession = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrors({});
 
-    if (!selectedCourse || !selectedTeacher || !selectedSlot || !selectedDate || !description.trim()) {
-      toast.error("Please fill in all fields");
+    const result = bookingSchema.safeParse({
+      courseId: selectedCourse,
+      teacherId: selectedTeacher,
+      slotId: selectedSlot,
+      date: selectedDate,
+      description,
+    });
+
+    if (!result.success) {
+      const newErrors: Record<string, string> = {};
+      result.error.errors.forEach((err) => {
+        newErrors[err.path[0] as string] = err.message;
+      });
+      setErrors(newErrors);
       return;
     }
 
     if (!user) return;
 
-    const slot = slots.find(s => s.id === selectedSlot);
-    if (!slot) return;
+    const slot = slots.find((s) => s.id === selectedSlot);
+    if (!slot) {
+      toast.error("Please select a valid time slot");
+      return;
+    }
 
-    const { error } = await supabase
-      .from("bookings")
-      .insert({
-        student_id: user.id,
-        teacher_id: selectedTeacher,
-        course_id: selectedCourse,
-        description: description.trim(),
-        booking_date: selectedDate,
-        booking_time: slot.start_time,
-        status: "Pending",
-      });
+    setIsSubmitting(true);
+    const { error } = await bookingService.createBooking({
+      studentId: user.id,
+      teacherId: selectedTeacher,
+      courseId: selectedCourse,
+      description: description.trim(),
+      bookingDate: selectedDate,
+      bookingTime: slot.start_time,
+    });
 
     if (error) {
       toast.error("Failed to submit booking: " + error.message);
+      setIsSubmitting(false);
       return;
     }
 
@@ -124,6 +83,7 @@ const BookSession = () => {
     setSelectedSlot("");
     setSelectedDate("");
     setDescription("");
+    setIsSubmitting(false);
   };
 
   return (
@@ -144,7 +104,7 @@ const BookSession = () => {
                 <div className="space-y-2">
                   <Label htmlFor="course">Course</Label>
                   <Select value={selectedCourse} onValueChange={setSelectedCourse}>
-                    <SelectTrigger id="course">
+                    <SelectTrigger id="course" className={errors.courseId ? "border-destructive" : ""}>
                       <SelectValue placeholder="Select a course" />
                     </SelectTrigger>
                     <SelectContent>
@@ -155,28 +115,40 @@ const BookSession = () => {
                       ))}
                     </SelectContent>
                   </Select>
+                  {errors.courseId && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {errors.courseId}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="teacher">Teacher</Label>
-                  <Select value={selectedTeacher} onValueChange={setSelectedTeacher}>
-                    <SelectTrigger id="teacher">
+                  <Select value={selectedTeacher} onValueChange={(v) => { setSelectedTeacher(v); setSelectedSlot(""); }}>
+                    <SelectTrigger id="teacher" className={errors.teacherId ? "border-destructive" : ""}>
                       <SelectValue placeholder="Select a teacher" />
                     </SelectTrigger>
                     <SelectContent>
                       {teachers.map((teacher) => (
                         <SelectItem key={teacher.id} value={teacher.id}>
-                          {teacher.profiles?.name}
+                          {teacher.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {errors.teacherId && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {errors.teacherId}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="slot">Available Time Slot</Label>
                   <Select value={selectedSlot} onValueChange={setSelectedSlot} disabled={!selectedTeacher}>
-                    <SelectTrigger id="slot">
+                    <SelectTrigger id="slot" className={errors.slotId ? "border-destructive" : ""}>
                       <SelectValue placeholder="Select a time slot" />
                     </SelectTrigger>
                     <SelectContent>
@@ -187,6 +159,12 @@ const BookSession = () => {
                       ))}
                     </SelectContent>
                   </Select>
+                  {errors.slotId && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {errors.slotId}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -196,8 +174,15 @@ const BookSession = () => {
                     type="date"
                     value={selectedDate}
                     onChange={(e) => setSelectedDate(e.target.value)}
-                    min={new Date().toISOString().split('T')[0]}
+                    min={new Date().toISOString().split("T")[0]}
+                    className={errors.date ? "border-destructive" : ""}
                   />
+                  {errors.date && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {errors.date}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -208,11 +193,24 @@ const BookSession = () => {
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     rows={4}
+                    maxLength={500}
+                    className={errors.description ? "border-destructive" : ""}
                   />
+                  <div className="flex justify-between">
+                    {errors.description ? (
+                      <p className="text-sm text-destructive flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        {errors.description}
+                      </p>
+                    ) : (
+                      <span />
+                    )}
+                    <span className="text-xs text-muted-foreground">{description.length}/500</span>
+                  </div>
                 </div>
 
-                <Button type="submit" className="w-full">
-                  Submit Booking Request
+                <Button type="submit" className="w-full" disabled={isSubmitting}>
+                  {isSubmitting ? "Submitting..." : "Submit Booking Request"}
                 </Button>
               </form>
             </CardContent>
@@ -228,12 +226,16 @@ const BookSession = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {courses.map((course) => (
-                    <div key={course.id} className="p-3 border rounded-lg">
-                      <p className="font-medium">{course.course_name}</p>
-                      <p className="text-xs text-muted-foreground">{course.course_id}</p>
-                    </div>
-                  ))}
+                  {courses.length === 0 ? (
+                    <p className="text-muted-foreground text-center py-4">No courses available</p>
+                  ) : (
+                    courses.map((course) => (
+                      <div key={course.id} className="p-3 border rounded-lg">
+                        <p className="font-medium">{course.course_name}</p>
+                        <p className="text-xs text-muted-foreground">{course.course_id}</p>
+                      </div>
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -247,15 +249,19 @@ const BookSession = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {teachers.map((teacher) => (
-                    <div key={teacher.id} className="p-3 border rounded-lg flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">{teacher.profiles?.name}</p>
-                        <p className="text-xs text-muted-foreground">{teacher.teacher_id}</p>
+                  {teachers.length === 0 ? (
+                    <p className="text-muted-foreground text-center py-4">No active teachers</p>
+                  ) : (
+                    teachers.map((teacher) => (
+                      <div key={teacher.id} className="p-3 border rounded-lg flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">{teacher.name}</p>
+                          <p className="text-xs text-muted-foreground">{teacher.teacher_id}</p>
+                        </div>
+                        <Badge className="bg-success text-success-foreground">Active</Badge>
                       </div>
-                      <Badge className="bg-success">Active</Badge>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>

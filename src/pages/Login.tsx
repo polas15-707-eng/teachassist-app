@@ -7,8 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { GraduationCap, LogIn, UserPlus } from "lucide-react";
+import { GraduationCap, LogIn, UserPlus, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { loginSchema, registerSchema } from "@/lib/validation";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -18,14 +19,19 @@ const Login = () => {
   // Login state
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  const [loginErrors, setLoginErrors] = useState<{ email?: string; password?: string }>({});
   
   // Register state
   const [registerName, setRegisterName] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
   const [registerRole, setRegisterRole] = useState<"teacher" | "student">("student");
+  const [registerErrors, setRegisterErrors] = useState<{ 
+    name?: string; 
+    email?: string; 
+    password?: string 
+  }>({});
 
-  // Redirect based on role when user is authenticated
   useEffect(() => {
     if (!loading && currentUser) {
       navigate("/dashboard");
@@ -34,8 +40,20 @@ const Login = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoginErrors({});
+
+    const result = loginSchema.safeParse({ email: loginEmail, password: loginPassword });
+    if (!result.success) {
+      const errors: { email?: string; password?: string } = {};
+      result.error.errors.forEach((err) => {
+        if (err.path[0] === "email") errors.email = err.message;
+        if (err.path[0] === "password") errors.password = err.message;
+      });
+      setLoginErrors(errors);
+      return;
+    }
+
     setIsLoading(true);
-    
     const { error } = await login(loginEmail, loginPassword);
     
     if (error) {
@@ -43,14 +61,32 @@ const Login = () => {
       setIsLoading(false);
     } else {
       toast.success("Login successful!");
-      // Navigation will happen automatically via useEffect
     }
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setRegisterErrors({});
+
+    const result = registerSchema.safeParse({
+      name: registerName,
+      email: registerEmail,
+      password: registerPassword,
+      role: registerRole,
+    });
+
+    if (!result.success) {
+      const errors: { name?: string; email?: string; password?: string } = {};
+      result.error.errors.forEach((err) => {
+        if (err.path[0] === "name") errors.name = err.message;
+        if (err.path[0] === "email") errors.email = err.message;
+        if (err.path[0] === "password") errors.password = err.message;
+      });
+      setRegisterErrors(errors);
+      return;
+    }
+
     setIsLoading(true);
-    
     const { error } = await register(registerName, registerEmail, registerPassword, registerRole);
     
     if (error) {
@@ -62,13 +98,12 @@ const Login = () => {
           ? "Registration successful! Waiting for admin approval." 
           : "Registration successful!"
       );
-      // Navigation will happen automatically via useEffect
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-muted to-background p-4">
-      <Card className="w-full max-w-md shadow-lg">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-muted/30 to-background p-4">
+      <Card className="w-full max-w-md shadow-lg border-border/50">
         <CardHeader className="text-center space-y-2">
           <div className="mx-auto w-12 h-12 bg-primary rounded-full flex items-center justify-center mb-2">
             <GraduationCap className="w-6 h-6 text-primary-foreground" />
@@ -99,8 +134,14 @@ const Login = () => {
                     placeholder="Enter your email"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
-                    required
+                    className={loginErrors.email ? "border-destructive" : ""}
                   />
+                  {loginErrors.email && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {loginErrors.email}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="login-password">Password</Label>
@@ -110,18 +151,18 @@ const Login = () => {
                     placeholder="Enter your password"
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
-                    required
+                    className={loginErrors.password ? "border-destructive" : ""}
                   />
+                  {loginErrors.password && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {loginErrors.password}
+                    </p>
+                  )}
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? "Logging in..." : "Login"}
                 </Button>
-                <div className="text-sm text-muted-foreground space-y-1 pt-2">
-                  <p className="font-semibold">Demo Accounts:</p>
-                  <p>Admin: admin@portal.com / admin123</p>
-                  <p>Teacher: sarah.j@portal.com / teacher123</p>
-                  <p>Student: alice.c@student.com / student123</p>
-                </div>
               </form>
             </TabsContent>
             
@@ -135,8 +176,14 @@ const Login = () => {
                     placeholder="Enter your full name"
                     value={registerName}
                     onChange={(e) => setRegisterName(e.target.value)}
-                    required
+                    className={registerErrors.name ? "border-destructive" : ""}
                   />
+                  {registerErrors.name && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {registerErrors.name}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="register-email">Email</Label>
@@ -146,8 +193,14 @@ const Login = () => {
                     placeholder="Enter your email"
                     value={registerEmail}
                     onChange={(e) => setRegisterEmail(e.target.value)}
-                    required
+                    className={registerErrors.email ? "border-destructive" : ""}
                   />
+                  {registerErrors.email && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {registerErrors.email}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="register-password">Password</Label>
@@ -157,8 +210,17 @@ const Login = () => {
                     placeholder="Create a password"
                     value={registerPassword}
                     onChange={(e) => setRegisterPassword(e.target.value)}
-                    required
+                    className={registerErrors.password ? "border-destructive" : ""}
                   />
+                  {registerErrors.password && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {registerErrors.password}
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Must be 6+ characters with uppercase, lowercase, and a number
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label>Register as</Label>
