@@ -5,3 +5,18 @@ verify_jwt = false
 
 [functions.send-booking-approved-email]
 verify_jwt = false
+
+[functions.send-teacher-registration-notification]
+verify_jwt = false
+
+[functions.send-teacher-rejection-email]
+verify_jwt = false
+
+[functions.send-new-booking-notification]
+verify_jwt = false
+
+[functions.send-booking-rejected-email]
+verify_jwt = false
+
+[functions.send-booking-reminder]
+verify_jwt = false
