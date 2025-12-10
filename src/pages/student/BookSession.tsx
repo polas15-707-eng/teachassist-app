@@ -10,10 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { BookOpen, User, AlertCircle } from "lucide-react";
 import { bookingService } from "@/services/bookingService";
+import { emailService } from "@/services/emailService";
 import { useCourses } from "@/hooks/useCourses";
 import { useActiveTeachers, useAvailableSlots } from "@/hooks/useTeachers";
 import { bookingSchema } from "@/lib/validation";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 const BookSession = () => {
   const { user } = useAuth();
